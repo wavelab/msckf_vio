@@ -168,8 +168,10 @@ bool MsckfVio::loadParameters() {
   ROS_INFO("initial extrinsic translation cov: %f",
       extrinsic_translation_cov);
 
-  cout << T_imu_cam0.linear() << endl;
-  cout << T_imu_cam0.translation().transpose() << endl;
+  cout << "T_imu_body.R: " << endl << IMUState::T_imu_body.linear() << endl;
+  cout << "T_imu_body.t: " << IMUState::T_imu_body.translation().transpose() << endl;
+  cout << "T_imu_cam0.R: " << T_imu_cam0.linear() << endl;
+  cout << "T_imu_cam0.t: " << T_imu_cam0.translation() << endl;
 
   ROS_INFO("max camera state #: %d", max_cam_state_size);
   ROS_INFO("===========================================");

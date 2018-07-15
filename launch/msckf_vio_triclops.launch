@@ -2,7 +2,7 @@
 
   <arg name="fixed_frame_id" default="world"/>
   <arg name="calibration_file"
-    default="$(find msckf_vio)/config/camchain-imucam-triclops.yaml"/>
+    default="$(find msckf_vio)/config/camchain-imucam-triclops2.yaml"/>
 
   <!-- Image Processor Nodelet  -->
   <node pkg="nodelet" type="nodelet" name="image_processor"
@@ -23,7 +23,7 @@
     <param name="stereo_threshold" value="5"/>
 
     <!-- Remap node's input topics to dataset topics -->
-    <remap from="~imu" to="/gvio/imu"/>
+    <remap from="~imu" to="/gvio/xsens/imu"/>
     <remap from="~cam0_image" to="/gvio/cam0/image"/>
     <remap from="~cam1_image" to="/gvio/cam1/image"/>
   </node>
@@ -51,26 +51,33 @@
     <param name="feature/config/translation_threshold" value="-1.0"/>
 
     <!-- These values should be standard deviation -->
-    <param name="noise/gyro" value="0.005"/>
-    <param name="noise/acc" value="0.05"/>
-    <param name="noise/gyro_bias" value="0.001"/>
-    <param name="noise/acc_bias" value="0.01"/>
-    <param name="noise/feature" value="0.035"/>
+    <param name="noise/gyro" value="0.1"/>
+    <param name="noise/acc" value="0.1"/>
+    <param name="noise/gyro_bias" value="0.05"/>
+    <param name="noise/acc_bias" value="0.05"/>
+    <param name="noise/feature" value="0.004"/>
 
     <param name="initial_state/velocity/x" value="0.0"/>
     <param name="initial_state/velocity/y" value="0.0"/>
     <param name="initial_state/velocity/z" value="0.0"/>
 
     <!-- These values should be covariance -->
-    <param name="initial_covariance/velocity" value="0.25"/>
+    <param name="initial_covariance/velocity" value="0.5"/>
     <param name="initial_covariance/gyro_bias" value="0.01"/>
     <param name="initial_covariance/acc_bias" value="0.01"/>
-    <param name="initial_covariance/extrinsic_rotation_cov" value="3.0462e-4"/>
-    <param name="initial_covariance/extrinsic_translation_cov" value="2.5e-5"/>
+    <param name="initial_covariance/extrinsic_rotation_cov" value="3.0e-1"/>
+    <param name="initial_covariance/extrinsic_translation_cov" value="2.5e-1"/>
 
     <!-- Remap node's input topics to dataset topics -->
-    <remap from="~imu" to="/gvio/imu"/>
+    <remap from="~imu" to="/gvio/xsens/imu"/>
     <remap from="~features" to="image_processor/features"/>
   </node>
+
+  <node name="rvizvisualisation"
+        pkg="rviz"
+        type="rviz"
+        output="log"
+        args="-d $(find msckf_vio)/rviz/rviz_triclops_config.rviz"
+        required="true" />
 
 </launch>
