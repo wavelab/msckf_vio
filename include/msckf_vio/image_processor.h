@@ -27,6 +27,206 @@
 
 namespace msckf_vio {
 
+/**
+ * Create DH transform from link n to link n-1 (end to front)
+ *
+ * @param theta
+ * @param d
+ * @param a
+ * @param alpha
+ *
+ * @returns DH transform
+ */
+Eigen::Matrix4d dh_transform(const double theta,
+                             const double d,
+                             const double a,
+                             const double alpha) {
+  // clang-format off
+  Eigen::Matrix4d T;
+  T << cos(theta), -sin(theta) * cos(alpha), sin(theta) * sin(alpha), a * cos(theta),
+       sin(theta), cos(theta) * cos(alpha), -cos(theta) * sin(alpha), a * sin(theta),
+       0.0, sin(alpha), cos(alpha), d,
+       0.0, 0.0, 0.0, 1.0;
+  // clang-format on
+
+  return T;
+}
+
+/**
+ * Convert euler sequence 321 to rotation matrix R
+ * This function assumes we are performing a body fixed intrinsic rotation.
+ *
+ * Source:
+ *
+ *     Kuipers, Jack B. Quaternions and Rotation Sequences: A Primer with
+ *     Applications to Orbits, Aerospace, and Virtual Reality. Princeton, N.J:
+ *     Princeton University Press, 1999. Print.
+ *
+ *     Page 86.
+ *
+ * @param euler Euler angle (roll, pitch, yaw)
+ * @returns Rotation matrix
+ */
+Eigen::Matrix3d euler321ToRot(const Eigen::Vector3d &euler) {
+  // i.e. ZYX rotation sequence (world to body)
+  const double phi = euler(0);
+  const double theta = euler(1);
+  const double psi = euler(2);
+
+  const double R11 = cos(psi) * cos(theta);
+  const double R21 = sin(psi) * cos(theta);
+  const double R31 = -sin(theta);
+
+  const double R12 = cos(psi) * sin(theta) * sin(phi) - sin(psi) * cos(phi);
+  const double R22 = sin(psi) * sin(theta) * sin(phi) + cos(psi) * cos(phi);
+  const double R32 = cos(theta) * sin(phi);
+
+  const double R13 = cos(psi) * sin(theta) * cos(phi) + sin(psi) * sin(phi);
+  const double R23 = sin(psi) * sin(theta) * cos(phi) - cos(psi) * sin(phi);
+  const double R33 = cos(theta) * cos(phi);
+
+  Eigen::Matrix3d R;
+  // clang-format off
+  R << R11, R12, R13,
+       R21, R22, R23,
+       R31, R32, R33;
+  // clang-format on
+
+  return R;
+}
+
+/**
+ * 2-DOF Gimbal Model
+ */
+class GimbalModel {
+public:
+  // Parameter vector of transform from
+  // static camera to base-mechanism
+  Eigen::VectorXd tau_s = Eigen::MatrixXd::Zero(6, 1);
+
+  // Parameter vector of transform from
+  // end-effector to dynamic camera
+  Eigen::VectorXd tau_d = Eigen::MatrixXd::Zero(6, 1);
+
+  // First gibmal-joint
+  double Lambda1 = 0.0;
+  Eigen::Vector3d w1 = Eigen::Vector3d::Zero();
+
+  // Second gibmal-joint
+  double Lambda2 = 0.0;
+  Eigen::Vector3d w2 = Eigen::Vector3d::Zero();
+
+  double theta1_offset = 0.0;
+  double theta2_offset = 0.0;
+
+  GimbalModel() {}
+
+  GimbalModel(const Eigen::VectorXd &tau_s,
+              const Eigen::VectorXd &tau_d,
+              const double Lambda1,
+              const Eigen::Vector3d w1,
+              const double Lambda2,
+              const Eigen::Vector3d w2,
+              const double theta1_offset = 0.0,
+              const double theta2_offset = 0.0)
+    : tau_s{tau_s}, tau_d{tau_d}, Lambda1{Lambda1}, w1{w1}, Lambda2{Lambda2},
+      w2{w2}, theta1_offset{theta1_offset}, theta2_offset{theta2_offset} {}
+
+  virtual ~GimbalModel() {}
+
+  /**
+   * Set gimbal attitude
+   *
+   * @param roll Roll (radians)
+   * @param pitch Pitch (radians)
+   */
+  void setAttitude(const double roll, const double pitch) {
+    this->Lambda1 = roll;
+    this->Lambda2 = pitch;
+  }
+
+  /**
+   * Get gimbal joint angle
+   */
+  Eigen::Vector2d getJointAngles() {
+    return Eigen::Vector2d{this->Lambda1, this->Lambda2};
+  }
+
+  /**
+   * Returns transform from static camera to base mechanism
+   */
+  Eigen::Matrix4d T_bs() {
+    Eigen::Matrix4d T_sb = Eigen::Matrix4d::Zero();
+    T_sb.block(0, 0, 3, 3) = euler321ToRot(this->tau_s.tail(3));
+    T_sb.block(0, 3, 3, 1) = this->tau_s.head(3);
+    T_sb(3, 3) = 1.0;
+
+    return T_sb;
+  }
+
+  /**
+   * Returns transform from base mechanism to end-effector
+   */
+  Eigen::Matrix4d T_eb() {
+    const double theta1 = this->Lambda1 + this->theta1_offset;
+    const double d1 = this->w1[0];
+    const double a1 = this->w1[1];
+    const double alpha1 = this->w1[2];
+
+    const double theta2 = this->Lambda2 + this->theta2_offset;
+    const double d2 = this->w2[0];
+    const double a2 = this->w2[1];
+    const double alpha2 = this->w2[2];
+
+    const Eigen::Matrix4d T_1b = dh_transform(theta1, d1, a1, alpha1).inverse();
+    const Eigen::Matrix4d T_e1 = dh_transform(theta2, d2, a2, alpha2).inverse();
+    const Eigen::Matrix4d T_eb = T_e1 * T_1b;
+
+    return T_eb;
+  }
+
+  /**
+   * Returns transform from end-effector to dynamic camera
+   */
+  Eigen::Matrix4d T_de() {
+    Eigen::Matrix4d T_de = Eigen::Matrix4d::Zero();
+    T_de.block(0, 0, 3, 3) = euler321ToRot(this->tau_d.tail(3));
+    T_de.block(0, 3, 3, 1) = this->tau_d.head(3);
+    T_de(3, 3) = 1.0;
+
+    return T_de;
+  }
+
+  /**
+   * Returns transform from static to dynamic camera
+   */
+  Eigen::Matrix4d T_ds() { return this->T_de() * this->T_eb() * this->T_bs(); }
+
+  /**
+   * Returns transform from static to dynamic camera
+   *
+   * @param theta Gimbal roll and pitch [radians]
+   * @returns Transform from static to dynamic camera
+   */
+  Eigen::Matrix4d T_ds(const Eigen::Vector2d &theta) {
+    this->setAttitude(theta(0), theta(1));
+    return this->T_de() * this->T_eb() * this->T_bs();
+  }
+};
+
+std::ostream &operator<<(std::ostream &os, const GimbalModel &gimbal) {
+  os << "tau_s: " << gimbal.tau_s.transpose() << std::endl;
+  os << "tau_d: " << gimbal.tau_d.transpose() << std::endl;
+  os << "w1: " << gimbal.w1.transpose() << std::endl;
+  os << "w2: " << gimbal.w2.transpose() << std::endl;
+  os << "Lambda1: " << gimbal.Lambda1 << std::endl;
+  os << "Lambda2: " << gimbal.Lambda2 << std::endl;
+  os << "theta1_offset: " << gimbal.theta1_offset << std::endl;
+  os << "theta2_offset: " << gimbal.theta2_offset << std::endl;
+  return os;
+}
+
+
 /*
  * @brief ImageProcessor Detects and tracks features
  *    in image sequences.
@@ -341,8 +541,8 @@ private:
   // IMU message buffer.
   std::vector<sensor_msgs::Imu> imu_msg_buffer;
 
-  // Camera type
-  std::string cam_type;
+  // Mode
+  std::string mode;
 
   // Camera calibration parameters
   std::string cam0_distortion_model;
@@ -356,6 +556,7 @@ private:
   cv::Vec4d cam1_distortion_coeffs;
 
   // Take a vector from cam0 frame to the IMU frame.
+  cv::Mat T_imu_cam0;
   cv::Matx33d R_cam0_imu;
   cv::Vec3d t_cam0_imu;
   // Take a vector from cam1 frame to the IMU frame.
@@ -364,12 +565,7 @@ private:
 
   // Gimbal properties
 	Eigen::Vector3d joint_angles = Eigen::Vector3d::Zero();
-	Eigen::VectorXd tau_s;
-	Eigen::VectorXd tau_d;
-	Eigen::Vector3d w1 = Eigen::Vector3d::Zero();
-	Eigen::Vector3d w2 = Eigen::Vector3d::Zero();
-	double theta1_offset = 0.0;
-	double theta2_offset = 0.0;
+	GimbalModel gimbal_model;
 
   // Previous and current images
   cv_bridge::CvImageConstPtr cam0_prev_img_ptr;
@@ -414,5 +610,4 @@ typedef ImageProcessor::Ptr ImageProcessorPtr;
 typedef ImageProcessor::ConstPtr ImageProcessorConstPtr;
 
 } // end namespace msckf_vio
-
 #endif

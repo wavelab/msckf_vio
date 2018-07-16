@@ -1,4 +1,4 @@
-cam_type: "DYNAMIC_STEREO"
+mode: "DYNAMIC_STEREO"
 
 cam0:
   T_cam_imu:

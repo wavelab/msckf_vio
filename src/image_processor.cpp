@@ -10,8 +10,11 @@
 #include <set>
 #include <Eigen/Dense>
 
+#include <opencv2/core/eigen.hpp>
+
 #include <sensor_msgs/image_encodings.h>
 #include <random_numbers/random_numbers.h>
+
 
 #include <msckf_vio/CameraMeasurement.h>
 #include <msckf_vio/TrackingInfo.h>
@@ -44,7 +47,7 @@ bool ImageProcessor::loadParameters() {
   ROS_INFO("Loading parameters!");
 
   // Get camera type
-  nh.getParam("cam_type", this->cam_type);
+  nh.getParam("mode", this->mode);
 
   // Load cam0 parameters
   // -- Resolution
@@ -70,13 +73,13 @@ bool ImageProcessor::loadParameters() {
   cam0_distortion_coeffs[3] = cam0_distortion_coeffs_temp[3];
   ROS_INFO("Loaded cam0 parameters!");
   // -- IMU to cam transform
-  cv::Mat     T_imu_cam0 = utils::getTransformCV(nh, "cam0/T_cam_imu");
+  this->T_imu_cam0 = utils::getTransformCV(nh, "cam0/T_cam_imu");
   cv::Matx33d R_imu_cam0(T_imu_cam0(cv::Rect(0,0,3,3)));
   cv::Vec3d   t_imu_cam0 = T_imu_cam0(cv::Rect(3,0,1,3));
   R_cam0_imu = R_imu_cam0.t();
   t_cam0_imu = -R_imu_cam0.t() * t_imu_cam0;
 
-	if (this->cam_type == "STATIC_STEREO") {
+	if (this->mode == "STATIC_STEREO") {
 	  // Load cam1 parameters
 	  // -- Intrinsics
 		vector<double> cam1_intrinsics_temp(4);
@@ -107,7 +110,7 @@ bool ImageProcessor::loadParameters() {
 		R_cam1_imu = R_imu_cam1.t();
 		t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
 
-	} else if (this->cam_type == "DYNAMIC_STEREO") {
+	} else if (this->mode == "DYNAMIC_STEREO") {
 	  // Load gimbal camera parameters
 	  // -- Intrinsics
 		vector<double> cam1_intrinsics_temp(4);
@@ -135,46 +138,59 @@ bool ImageProcessor::loadParameters() {
     // -- tau_s
 		vector<double> tau_s_temp(6);
 		nh.getParam("gimbal_cam/tau_s", tau_s_temp);
-    this->tau_s.resize(6);
-		this->tau_s(0) = tau_s_temp[0];
-		this->tau_s(1) = tau_s_temp[1];
-		this->tau_s(2) = tau_s_temp[2];
-		this->tau_s(3) = tau_s_temp[3];
-		this->tau_s(4) = tau_s_temp[4];
-		this->tau_s(5) = tau_s_temp[5];
+		this->gimbal_model.tau_s(0) = tau_s_temp[0];
+		this->gimbal_model.tau_s(1) = tau_s_temp[1];
+		this->gimbal_model.tau_s(2) = tau_s_temp[2];
+		this->gimbal_model.tau_s(3) = tau_s_temp[3];
+		this->gimbal_model.tau_s(4) = tau_s_temp[4];
+		this->gimbal_model.tau_s(5) = tau_s_temp[5];
     // -- tau_d
 		vector<double> tau_d_temp(6);
 		nh.getParam("gimbal_cam/tau_d", tau_d_temp);
-    this->tau_d.resize(6);
-		this->tau_d(0) = tau_d_temp[0];
-		this->tau_d(1) = tau_d_temp[1];
-		this->tau_d(2) = tau_d_temp[2];
-		this->tau_d(3) = tau_d_temp[3];
-		this->tau_d(4) = tau_d_temp[4];
-		this->tau_d(5) = tau_d_temp[5];
+		this->gimbal_model.tau_d(0) = tau_d_temp[0];
+		this->gimbal_model.tau_d(1) = tau_d_temp[1];
+		this->gimbal_model.tau_d(2) = tau_d_temp[2];
+		this->gimbal_model.tau_d(3) = tau_d_temp[3];
+		this->gimbal_model.tau_d(4) = tau_d_temp[4];
+		this->gimbal_model.tau_d(5) = tau_d_temp[5];
     // -- w1
 		vector<double> w1_temp(3);
 		nh.getParam("gimbal_cam/w1", w1_temp);
-		this->w1(0) = w1_temp[0];
-		this->w1(1) = w1_temp[1];
-		this->w1(2) = w1_temp[2];
+		this->gimbal_model.w1(0) = w1_temp[0];
+		this->gimbal_model.w1(1) = w1_temp[1];
+		this->gimbal_model.w1(2) = w1_temp[2];
     // -- w2
 		vector<double> w2_temp(3);
 		nh.getParam("gimbal_cam/w2", w2_temp);
-		this->w2(0) = w2_temp[0];
-		this->w2(1) = w2_temp[1];
-		this->w2(2) = w2_temp[2];
+		this->gimbal_model.w2(0) = w2_temp[0];
+		this->gimbal_model.w2(1) = w2_temp[1];
+		this->gimbal_model.w2(2) = w2_temp[2];
     // -- theta1_offset
 		double theta1_offset_temp = 0.0;
 		nh.getParam("gimbal_cam/theta1_offset", theta1_offset_temp);
-		this->theta1_offset = theta1_offset_temp;
+		this->gimbal_model.theta1_offset = theta1_offset_temp;
     // -- theta2_offset
 		double theta2_offset_temp = 0.0;
 		nh.getParam("gimbal_cam/theta2_offset", theta2_offset_temp);
-		this->theta2_offset = theta2_offset_temp;
+		this->gimbal_model.theta2_offset = theta2_offset_temp;
+
+    // Update cam1 to imu transform
+    // -- Gimbal transform from static to dynamic camera (cam0 to cam1)
+    this->gimbal_model.setAttitude(0.0, 0.0);
+    Eigen::Matrix4d T_ds = this->gimbal_model.T_ds();
+    // -- Convert Eigen::Matrix4d to cv::Mat
+    cv::Mat T_cam0_cam1;
+    eigen2cv(T_ds, T_cam0_cam1);
+    // Note: UPenn's code uses T_cam0_cam1 to denote transform from cam0 to cam1
+    // -- Form rotation and translation of cam1 to imu
+    cv::Mat T_imu_cam1 = T_cam0_cam1 * this->T_imu_cam0;
+    cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0,0,3,3)));
+    cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3,0,1,3));
+    this->R_cam1_imu = R_imu_cam1.t();
+    this->t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
 
 	} else {
-    ROS_ERROR("Invalid cam_type [%s]!", this->cam_type.c_str());
+    ROS_ERROR("Invalid mode [%s]!", this->mode.c_str());
     exit(0);
 	}
 
@@ -192,7 +208,7 @@ bool ImageProcessor::loadParameters() {
   nh.param<double>("stereo_threshold", processor_config.stereo_threshold, 3);
 
   ROS_INFO("===========================================");
-  ROS_INFO("cam_type: %s", this->cam_type.c_str());
+  ROS_INFO("mode: %s", this->mode.c_str());
 
   ROS_INFO("cam0_resolution: %d, %d", cam0_resolution[0], cam0_resolution[1]);
   ROS_INFO("cam0_intrinscs: %f, %f, %f, %f",
@@ -215,19 +231,19 @@ bool ImageProcessor::loadParameters() {
       cam1_distortion_coeffs[0], cam1_distortion_coeffs[1],
       cam1_distortion_coeffs[2], cam1_distortion_coeffs[3]);
 
-  if (this->cam_type == "DYNAMIC_STEREO") {
+  if (this->mode == "DYNAMIC_STEREO") {
     ROS_INFO("tau_s: %f, %f, %f, %f, %f, %f",
-        this->tau_s(0), this->tau_s(1), this->tau_s(2),
-        this->tau_s(3), this->tau_s(4), this->tau_s(5));
+        this->gimbal_model.tau_s(0), this->gimbal_model.tau_s(1), this->gimbal_model.tau_s(2),
+        this->gimbal_model.tau_s(3), this->gimbal_model.tau_s(4), this->gimbal_model.tau_s(5));
     ROS_INFO("tau_d: %f, %f, %f, %f, %f, %f",
-        this->tau_d(0), this->tau_d(1), this->tau_d(2),
-        this->tau_d(3), this->tau_d(4), this->tau_d(5));
+        this->gimbal_model.tau_d(0), this->gimbal_model.tau_d(1), this->gimbal_model.tau_d(2),
+        this->gimbal_model.tau_d(3), this->gimbal_model.tau_d(4), this->gimbal_model.tau_d(5));
     ROS_INFO("w1: %f, %f, %f",
-        this->w1(0), this->w1(1), this->w1(2));
+        this->gimbal_model.w1(0), this->gimbal_model.w1(1), this->gimbal_model.w1(2));
     ROS_INFO("w2: %f, %f, %f",
-        this->w2(0), this->w2(1), this->w2(2));
-    ROS_INFO("theta1_offset: %f", this->theta1_offset);
-    ROS_INFO("theta2_offset: %f", this->theta2_offset);
+        this->gimbal_model.w2(0), this->gimbal_model.w2(1), this->gimbal_model.w2(2));
+    ROS_INFO("theta1_offset: %f", this->gimbal_model.theta1_offset);
+    ROS_INFO("theta2_offset: %f", this->gimbal_model.theta2_offset);
   }
 
   // cout << R_imu_cam0 << endl;
@@ -270,7 +286,7 @@ bool ImageProcessor::createRosIO() {
   stereo_sub.connectInput(cam0_img_sub, cam1_img_sub);
   stereo_sub.registerCallback(&ImageProcessor::stereoCallback, this);
   imu_sub = nh.subscribe("imu", 50, &ImageProcessor::imuCallback, this);
-  /* gimbal_sub = nh.subscribe("gimbal", 0, &ImageProcessor::gimbalCallback, this); */
+  gimbal_sub = nh.subscribe("gimbal", 0, &ImageProcessor::gimbalCallback, this);
 
   return true;
 }
@@ -379,6 +395,22 @@ void ImageProcessor::imuCallback(
 
 void ImageProcessor::gimbalCallback(const geometry_msgs::Vector3 &msg) {
 	this->joint_angles = Eigen::Vector3d{msg.x, msg.y, msg.z};
+
+  // Update cam1 to imu transform
+  // -- Gimbal transform from static to dynamic camera (cam0 to cam1)
+  this->gimbal_model.setAttitude(this->joint_angles(0),
+                                 this->joint_angles(1));
+  Eigen::Matrix4d T_ds = this->gimbal_model.T_ds();
+  // -- Convert Eigen::Matrix4d to cv::Mat
+  cv::Mat T_cam0_cam1;
+  eigen2cv(T_ds, T_cam0_cam1);
+  // Note: UPenn's code uses T_cam0_cam1 to denote transform from cam0 to cam1
+  // -- Form rotation and translation of cam1 to imu
+  cv::Mat T_imu_cam1 = T_cam0_cam1 * this->T_imu_cam0;
+  cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0,0,3,3)));
+  cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3,0,1,3));
+  this->R_cam1_imu = R_imu_cam1.t();
+  this->t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
 }
 
 void ImageProcessor::createImagePyramids() {
