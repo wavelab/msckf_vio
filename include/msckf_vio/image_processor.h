@@ -564,7 +564,8 @@ private:
   cv::Vec3d t_cam1_imu;
 
   // Gimbal properties
-	Eigen::Vector3d joint_angles = Eigen::Vector3d::Zero();
+	Eigen::Vector2d joint_angles = Eigen::Vector2d::Zero();
+	Eigen::Vector2d image_joint_angles = Eigen::Vector2d::Zero();
 	GimbalModel gimbal_model;
 
   // Previous and current images

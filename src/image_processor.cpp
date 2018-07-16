@@ -26,6 +26,7 @@ using namespace cv;
 using namespace Eigen;
 
 namespace msckf_vio {
+
 ImageProcessor::ImageProcessor(ros::NodeHandle& n) :
   nh(n),
   is_first_img(true),
@@ -286,7 +287,10 @@ bool ImageProcessor::createRosIO() {
   stereo_sub.connectInput(cam0_img_sub, cam1_img_sub);
   stereo_sub.registerCallback(&ImageProcessor::stereoCallback, this);
   imu_sub = nh.subscribe("imu", 50, &ImageProcessor::imuCallback, this);
-  gimbal_sub = nh.subscribe("gimbal", 0, &ImageProcessor::gimbalCallback, this);
+
+	if (this->mode == "DYNAMIC_STEREO") {
+    gimbal_sub = nh.subscribe("gimbal", 0, &ImageProcessor::gimbalCallback, this);
+  }
 
   return true;
 }
@@ -308,8 +312,26 @@ bool ImageProcessor::initialize() {
 void ImageProcessor::stereoCallback(
     const sensor_msgs::ImageConstPtr& cam0_img,
     const sensor_msgs::ImageConstPtr& cam1_img) {
+  // Set image joint angles
+  if (this->mode == "DYNAMIC_STEREO") {
+    this->image_joint_angles = this->joint_angles;
 
-  //cout << "==================================" << endl;
+    // Update cam1 to imu transform
+    // -- Gimbal transform from static to dynamic camera (cam0 to cam1)
+    this->gimbal_model.setAttitude(this->image_joint_angles(0),
+                                   this->image_joint_angles(1));
+    Eigen::Matrix4d T_ds = this->gimbal_model.T_ds();
+    // -- Convert Eigen::Matrix4d to cv::Mat
+    cv::Mat T_cam0_cam1;
+    eigen2cv(T_ds, T_cam0_cam1);
+    // Note: UPenn's code uses T_cam0_cam1 to denote transform from cam0 to cam1
+    // -- Form rotation and translation of cam1 to imu
+    cv::Mat T_imu_cam1 = T_cam0_cam1 * this->T_imu_cam0;
+    cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0,0,3,3)));
+    cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3,0,1,3));
+    this->R_cam1_imu = R_imu_cam1.t();
+    this->t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
+  }
 
   // Get the current image.
   cam0_curr_img_ptr = cv_bridge::toCvShare(cam0_img,
@@ -394,23 +416,7 @@ void ImageProcessor::imuCallback(
 }
 
 void ImageProcessor::gimbalCallback(const geometry_msgs::Vector3 &msg) {
-	this->joint_angles = Eigen::Vector3d{msg.x, msg.y, msg.z};
-
-  // Update cam1 to imu transform
-  // -- Gimbal transform from static to dynamic camera (cam0 to cam1)
-  this->gimbal_model.setAttitude(this->joint_angles(0),
-                                 this->joint_angles(1));
-  Eigen::Matrix4d T_ds = this->gimbal_model.T_ds();
-  // -- Convert Eigen::Matrix4d to cv::Mat
-  cv::Mat T_cam0_cam1;
-  eigen2cv(T_ds, T_cam0_cam1);
-  // Note: UPenn's code uses T_cam0_cam1 to denote transform from cam0 to cam1
-  // -- Form rotation and translation of cam1 to imu
-  cv::Mat T_imu_cam1 = T_cam0_cam1 * this->T_imu_cam0;
-  cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0,0,3,3)));
-  cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3,0,1,3));
-  this->R_cam1_imu = R_imu_cam1.t();
-  this->t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
+	this->joint_angles = Eigen::Vector2d{msg.x, msg.y};
 }
 
 void ImageProcessor::createImagePyramids() {
@@ -665,25 +671,26 @@ void ImageProcessor::trackFeatures() {
   // Number of features left after stereo matching.
   after_matching = curr_matched_cam0_points.size();
 
-  // Step 2 and 3: RANSAC on temporal image pairs of cam0 and cam1.
-  vector<int> cam0_ransac_inliers(0);
-  twoPointRansac(prev_matched_cam0_points, curr_matched_cam0_points,
-      cam0_R_p_c, cam0_intrinsics, cam0_distortion_model,
-      cam0_distortion_coeffs, processor_config.ransac_threshold,
-      0.99, cam0_ransac_inliers);
-
-  vector<int> cam1_ransac_inliers(0);
-  twoPointRansac(prev_matched_cam1_points, curr_matched_cam1_points,
-      cam1_R_p_c, cam1_intrinsics, cam1_distortion_model,
-      cam1_distortion_coeffs, processor_config.ransac_threshold,
-      0.99, cam1_ransac_inliers);
+  /* // Step 2 and 3: RANSAC on temporal image pairs of cam0 and cam1. */
+  /* vector<int> cam0_ransac_inliers(0); */
+  /* twoPointRansac(prev_matched_cam0_points, curr_matched_cam0_points, */
+  /*     cam0_R_p_c, cam0_intrinsics, cam0_distortion_model, */
+  /*     cam0_distortion_coeffs, processor_config.ransac_threshold, */
+  /*     0.99, cam0_ransac_inliers); */
+  /*  */
+  /* vector<int> cam1_ransac_inliers(0); */
+  /* twoPointRansac(prev_matched_cam1_points, curr_matched_cam1_points, */
+  /*     cam1_R_p_c, cam1_intrinsics, cam1_distortion_model, */
+  /*     cam1_distortion_coeffs, processor_config.ransac_threshold, */
+  /*     0.99, cam1_ransac_inliers); */
 
   // Number of features after ransac.
   after_ransac = 0;
 
-  for (int i = 0; i < cam0_ransac_inliers.size(); ++i) {
-    if (cam0_ransac_inliers[i] == 0 ||
-        cam1_ransac_inliers[i] == 0) continue;
+  /* for (int i = 0; i < cam0_ransac_inliers.size(); ++i) { */
+    /* if (cam0_ransac_inliers[i] == 0 || */
+    /*     cam1_ransac_inliers[i] == 0) continue; */
+  for (int i = 0; i < prev_matched_cam0_points.size(); ++i) {
     int row = static_cast<int>(
         curr_matched_cam0_points[i].y / grid_height);
     int col = static_cast<int>(
@@ -732,16 +739,22 @@ void ImageProcessor::stereoMatch(
 
   if (cam0_points.size() == 0) return;
 
-  if(cam1_points.size() == 0) {
-    // Initialize cam1_points by projecting cam0_points to cam1 using the
-    // rotation from stereo extrinsics
-    const cv::Matx33d R_cam0_cam1 = R_cam1_imu.t() * R_cam0_imu;
-    vector<cv::Point2f> cam0_points_undistorted;
-    undistortPoints(cam0_points, cam0_intrinsics, cam0_distortion_model,
-                    cam0_distortion_coeffs, cam0_points_undistorted,
-                    R_cam0_cam1);
-    cam1_points = distortPoints(cam0_points_undistorted, cam1_intrinsics,
-                                cam1_distortion_model, cam1_distortion_coeffs);
+  /* if(cam1_points.size() == 0) { */
+  /*   // Initialize cam1_points by projecting cam0_points to cam1 using the */
+  /*   // rotation from stereo extrinsics */
+  /*   const cv::Matx33d R_cam0_cam1 = R_cam1_imu.t() * R_cam0_imu; */
+  /*   vector<cv::Point2f> cam0_points_undistorted; */
+  /*   undistortPoints(cam0_points, cam0_intrinsics, cam0_distortion_model, */
+  /*                   cam0_distortion_coeffs, cam0_points_undistorted, */
+  /*                   R_cam0_cam1); */
+  /*   cam1_points = distortPoints(cam0_points_undistorted, cam1_intrinsics, */
+  /*                               cam1_distortion_model, cam1_distortion_coeffs); */
+  /* } */
+
+  if (cam1_points.size() == 0) {
+    for (const auto &pt : cam0_points) {
+      cam1_points.push_back(pt);
+    }
   }
 
   // Track features using LK optical flow method.
@@ -1562,8 +1575,8 @@ void ImageProcessor::drawFeaturesStereo() {
     cv_bridge::CvImage debug_image(cam0_curr_img_ptr->header, "bgr8", out_img);
     debug_stereo_pub.publish(debug_image.toImageMsg());
   }
-  //imshow("Feature", out_img);
-  //waitKey(5);
+  /* imshow("Feature", out_img); */
+  /* waitKey(5); */
 
   return;
 }

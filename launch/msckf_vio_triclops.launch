@@ -20,13 +20,13 @@
     <param name="max_iteration" value="30"/>
     <param name="track_precision" value="0.01"/>
     <param name="ransac_threshold" value="3"/>
-    <param name="stereo_threshold" value="5"/>
+    <param name="stereo_threshold" value="10"/>
 
     <!-- Remap node's input topics to dataset topics -->
     <remap from="~imu" to="/gvio/xsens/imu"/>
     <remap from="~cam0_image" to="/gvio/cam0/image"/>
-    <remap from="~cam1_image" to="/gvio/cam1/image"/>
-    <remap from="~gimbal" to="/gvio/gimbal/joint_angle"/>
+    <remap from="~cam1_image" to="/gvio/cam2/image"/>
+    <remap from="~gimbal" to="/gvio/gimbal/joint_angles"/>
   </node>
 
   <!-- <!&#45;&#45; Msckf Vio Nodelet  &#45;&#45;> -->

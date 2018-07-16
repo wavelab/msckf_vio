@@ -129,6 +129,35 @@ target_link_libraries(image_processor_nodelet
   ${catkin_LIBRARIES}
 )
 
+# Stereo tracker
+add_library(stereo_tracker
+  src/stereo_tracker.cpp
+  src/utils.cpp
+)
+add_dependencies(stereo_tracker
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_link_libraries(stereo_tracker
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  gvio
+)
+
+# Stereo tracker nodelet
+link_directories(/usr/local/lib)
+add_library(stereo_tracker_nodelet
+  src/stereo_tracker_nodelet.cpp
+)
+add_dependencies(stereo_tracker_nodelet
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_link_libraries(stereo_tracker_nodelet
+  stereo_tracker
+  ${catkin_LIBRARIES}
+)
+
 #############
 ## Install ##
 #############

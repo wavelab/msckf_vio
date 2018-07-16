@@ -1,0 +1,15 @@
+<launch>
+  <arg name="calibration_file"
+    default="$(find msckf_vio)/config/camchain-imucam-triclops2.yaml"/>
+
+  <!-- Stereo Tracker Nodelet  -->
+  <node pkg="nodelet" type="nodelet" name="stereo_tracker"
+    args="standalone msckf_vio/StereoTrackerNodelet"
+    output="screen">
+
+    <rosparam command="load" file="$(arg calibration_file)"/>
+    <remap from="~imu" to="/gvio/xsens/imu"/>
+    <remap from="~cam0_image" to="/gvio/cam0/image"/>
+    <remap from="~cam1_image" to="/gvio/cam2/image"/>
+  </node>
+</launch>
