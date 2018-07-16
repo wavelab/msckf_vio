@@ -41,90 +41,160 @@ ImageProcessor::~ImageProcessor() {
 }
 
 bool ImageProcessor::loadParameters() {
-  // Camera calibration parameters
-  nh.param<string>("cam0/distortion_model",
-      cam0_distortion_model, string("radtan"));
-  nh.param<string>("cam1/distortion_model",
-      cam1_distortion_model, string("radtan"));
+  ROS_INFO("Loading parameters!");
 
+  // Get camera type
+  nh.getParam("cam_type", this->cam_type);
+
+  // Load cam0 parameters
+  // -- Resolution
   vector<int> cam0_resolution_temp(2);
   nh.getParam("cam0/resolution", cam0_resolution_temp);
   cam0_resolution[0] = cam0_resolution_temp[0];
   cam0_resolution[1] = cam0_resolution_temp[1];
-
-  vector<int> cam1_resolution_temp(2);
-  nh.getParam("cam1/resolution", cam1_resolution_temp);
-  cam1_resolution[0] = cam1_resolution_temp[0];
-  cam1_resolution[1] = cam1_resolution_temp[1];
-
+  // -- Intrinsics
   vector<double> cam0_intrinsics_temp(4);
   nh.getParam("cam0/intrinsics", cam0_intrinsics_temp);
   cam0_intrinsics[0] = cam0_intrinsics_temp[0];
   cam0_intrinsics[1] = cam0_intrinsics_temp[1];
   cam0_intrinsics[2] = cam0_intrinsics_temp[2];
   cam0_intrinsics[3] = cam0_intrinsics_temp[3];
-
-  vector<double> cam1_intrinsics_temp(4);
-  nh.getParam("cam1/intrinsics", cam1_intrinsics_temp);
-  cam1_intrinsics[0] = cam1_intrinsics_temp[0];
-  cam1_intrinsics[1] = cam1_intrinsics_temp[1];
-  cam1_intrinsics[2] = cam1_intrinsics_temp[2];
-  cam1_intrinsics[3] = cam1_intrinsics_temp[3];
-
+  // -- Distortion model
+  nh.param<string>("cam0/distortion_model", cam0_distortion_model, string("radtan"));
+  // -- Distortion coefficients
   vector<double> cam0_distortion_coeffs_temp(4);
-  nh.getParam("cam0/distortion_coeffs",
-      cam0_distortion_coeffs_temp);
+  nh.getParam("cam0/distortion_coeffs", cam0_distortion_coeffs_temp);
   cam0_distortion_coeffs[0] = cam0_distortion_coeffs_temp[0];
   cam0_distortion_coeffs[1] = cam0_distortion_coeffs_temp[1];
   cam0_distortion_coeffs[2] = cam0_distortion_coeffs_temp[2];
   cam0_distortion_coeffs[3] = cam0_distortion_coeffs_temp[3];
-
-  vector<double> cam1_distortion_coeffs_temp(4);
-  nh.getParam("cam1/distortion_coeffs",
-      cam1_distortion_coeffs_temp);
-  cam1_distortion_coeffs[0] = cam1_distortion_coeffs_temp[0];
-  cam1_distortion_coeffs[1] = cam1_distortion_coeffs_temp[1];
-  cam1_distortion_coeffs[2] = cam1_distortion_coeffs_temp[2];
-  cam1_distortion_coeffs[3] = cam1_distortion_coeffs_temp[3];
-
+  ROS_INFO("Loaded cam0 parameters!");
+  // -- IMU to cam transform
   cv::Mat     T_imu_cam0 = utils::getTransformCV(nh, "cam0/T_cam_imu");
   cv::Matx33d R_imu_cam0(T_imu_cam0(cv::Rect(0,0,3,3)));
   cv::Vec3d   t_imu_cam0 = T_imu_cam0(cv::Rect(3,0,1,3));
   R_cam0_imu = R_imu_cam0.t();
   t_cam0_imu = -R_imu_cam0.t() * t_imu_cam0;
 
-  cv::Mat T_cam0_cam1 = utils::getTransformCV(nh, "cam1/T_cn_cnm1");
-  cv::Mat T_imu_cam1 = T_cam0_cam1 * T_imu_cam0;
-  cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0,0,3,3)));
-  cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3,0,1,3));
-  R_cam1_imu = R_imu_cam1.t();
-  t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
+	if (this->cam_type == "STATIC_STEREO") {
+	  // Load cam1 parameters
+	  // -- Intrinsics
+		vector<double> cam1_intrinsics_temp(4);
+		nh.getParam("cam1/intrinsics", cam1_intrinsics_temp);
+		cam1_intrinsics[0] = cam1_intrinsics_temp[0];
+		cam1_intrinsics[1] = cam1_intrinsics_temp[1];
+		cam1_intrinsics[2] = cam1_intrinsics_temp[2];
+		cam1_intrinsics[3] = cam1_intrinsics_temp[3];
+	  // -- Distortion model
+		nh.param<string>("cam1/distortion_model", cam1_distortion_model, string("radtan"));
+	  // -- Distortion coefficients
+		vector<double> cam1_distortion_coeffs_temp(4);
+		nh.getParam("cam1/distortion_coeffs", cam1_distortion_coeffs_temp);
+		cam1_distortion_coeffs[0] = cam1_distortion_coeffs_temp[0];
+		cam1_distortion_coeffs[1] = cam1_distortion_coeffs_temp[1];
+		cam1_distortion_coeffs[2] = cam1_distortion_coeffs_temp[2];
+		cam1_distortion_coeffs[3] = cam1_distortion_coeffs_temp[3];
+	  // -- Resolution
+		vector<int> cam1_resolution_temp(2);
+		nh.getParam("cam1/resolution", cam1_resolution_temp);
+		cam1_resolution[0] = cam1_resolution_temp[0];
+		cam1_resolution[1] = cam1_resolution_temp[1];
+	  // -- cam1 to cam0 transform
+		cv::Mat T_cam0_cam1 = utils::getTransformCV(nh, "cam1/T_cn_cnm1");
+		cv::Mat T_imu_cam1 = T_cam0_cam1 * T_imu_cam0;
+		cv::Matx33d R_imu_cam1(T_imu_cam1(cv::Rect(0,0,3,3)));
+		cv::Vec3d   t_imu_cam1 = T_imu_cam1(cv::Rect(3,0,1,3));
+		R_cam1_imu = R_imu_cam1.t();
+		t_cam1_imu = -R_imu_cam1.t() * t_imu_cam1;
+
+	} else if (this->cam_type == "DYNAMIC_STEREO") {
+	  // Load gimbal camera parameters
+	  // -- Intrinsics
+		vector<double> cam1_intrinsics_temp(4);
+		nh.getParam("gimbal_cam/intrinsics", cam1_intrinsics_temp);
+		cam1_intrinsics[0] = cam1_intrinsics_temp[0];
+		cam1_intrinsics[1] = cam1_intrinsics_temp[1];
+		cam1_intrinsics[2] = cam1_intrinsics_temp[2];
+		cam1_intrinsics[3] = cam1_intrinsics_temp[3];
+	  // -- Distortion model
+		nh.param<string>("gimbal_cam/distortion_model", cam1_distortion_model, string("radtan"));
+	  // -- Distortion coefficients
+		vector<double> cam1_distortion_coeffs_temp(4);
+		nh.getParam("gimbal_cam/distortion_coeffs", cam1_distortion_coeffs_temp);
+		cam1_distortion_coeffs[0] = cam1_distortion_coeffs_temp[0];
+		cam1_distortion_coeffs[1] = cam1_distortion_coeffs_temp[1];
+		cam1_distortion_coeffs[2] = cam1_distortion_coeffs_temp[2];
+		cam1_distortion_coeffs[3] = cam1_distortion_coeffs_temp[3];
+	  // -- Resolution
+		vector<int> cam1_resolution_temp(2);
+		nh.getParam("gimbal_cam/resolution", cam1_resolution_temp);
+		cam1_resolution[0] = cam1_resolution_temp[0];
+		cam1_resolution[1] = cam1_resolution_temp[1];
+
+    // Gimbal transform parameters
+    // -- tau_s
+		vector<double> tau_s_temp(6);
+		nh.getParam("gimbal_cam/tau_s", tau_s_temp);
+    this->tau_s.resize(6);
+		this->tau_s(0) = tau_s_temp[0];
+		this->tau_s(1) = tau_s_temp[1];
+		this->tau_s(2) = tau_s_temp[2];
+		this->tau_s(3) = tau_s_temp[3];
+		this->tau_s(4) = tau_s_temp[4];
+		this->tau_s(5) = tau_s_temp[5];
+    // -- tau_d
+		vector<double> tau_d_temp(6);
+		nh.getParam("gimbal_cam/tau_d", tau_d_temp);
+    this->tau_d.resize(6);
+		this->tau_d(0) = tau_d_temp[0];
+		this->tau_d(1) = tau_d_temp[1];
+		this->tau_d(2) = tau_d_temp[2];
+		this->tau_d(3) = tau_d_temp[3];
+		this->tau_d(4) = tau_d_temp[4];
+		this->tau_d(5) = tau_d_temp[5];
+    // -- w1
+		vector<double> w1_temp(3);
+		nh.getParam("gimbal_cam/w1", w1_temp);
+		this->w1(0) = w1_temp[0];
+		this->w1(1) = w1_temp[1];
+		this->w1(2) = w1_temp[2];
+    // -- w2
+		vector<double> w2_temp(3);
+		nh.getParam("gimbal_cam/w2", w2_temp);
+		this->w2(0) = w2_temp[0];
+		this->w2(1) = w2_temp[1];
+		this->w2(2) = w2_temp[2];
+    // -- theta1_offset
+		double theta1_offset_temp = 0.0;
+		nh.getParam("gimbal_cam/theta1_offset", theta1_offset_temp);
+		this->theta1_offset = theta1_offset_temp;
+    // -- theta2_offset
+		double theta2_offset_temp = 0.0;
+		nh.getParam("gimbal_cam/theta2_offset", theta2_offset_temp);
+		this->theta2_offset = theta2_offset_temp;
+
+	} else {
+    ROS_ERROR("Invalid cam_type [%s]!", this->cam_type.c_str());
+    exit(0);
+	}
 
   // Processor parameters
   nh.param<int>("grid_row", processor_config.grid_row, 4);
   nh.param<int>("grid_col", processor_config.grid_col, 4);
-  nh.param<int>("grid_min_feature_num",
-      processor_config.grid_min_feature_num, 2);
-  nh.param<int>("grid_max_feature_num",
-      processor_config.grid_max_feature_num, 4);
-  nh.param<int>("pyramid_levels",
-      processor_config.pyramid_levels, 3);
-  nh.param<int>("patch_size",
-      processor_config.patch_size, 31);
-  nh.param<int>("fast_threshold",
-      processor_config.fast_threshold, 20);
-  nh.param<int>("max_iteration",
-      processor_config.max_iteration, 30);
-  nh.param<double>("track_precision",
-      processor_config.track_precision, 0.01);
-  nh.param<double>("ransac_threshold",
-      processor_config.ransac_threshold, 3);
-  nh.param<double>("stereo_threshold",
-      processor_config.stereo_threshold, 3);
+  nh.param<int>("grid_min_feature_num", processor_config.grid_min_feature_num, 2);
+  nh.param<int>("grid_max_feature_num", processor_config.grid_max_feature_num, 4);
+  nh.param<int>("pyramid_levels", processor_config.pyramid_levels, 3);
+  nh.param<int>("patch_size", processor_config.patch_size, 31);
+  nh.param<int>("fast_threshold", processor_config.fast_threshold, 20);
+  nh.param<int>("max_iteration", processor_config.max_iteration, 30);
+  nh.param<double>("track_precision", processor_config.track_precision, 0.01);
+  nh.param<double>("ransac_threshold", processor_config.ransac_threshold, 3);
+  nh.param<double>("stereo_threshold", processor_config.stereo_threshold, 3);
 
   ROS_INFO("===========================================");
-  ROS_INFO("cam0_resolution: %d, %d",
-      cam0_resolution[0], cam0_resolution[1]);
+  ROS_INFO("cam_type: %s", this->cam_type.c_str());
+
+  ROS_INFO("cam0_resolution: %d, %d", cam0_resolution[0], cam0_resolution[1]);
   ROS_INFO("cam0_intrinscs: %f, %f, %f, %f",
       cam0_intrinsics[0], cam0_intrinsics[1],
       cam0_intrinsics[2], cam0_intrinsics[3]);
@@ -145,8 +215,23 @@ bool ImageProcessor::loadParameters() {
       cam1_distortion_coeffs[0], cam1_distortion_coeffs[1],
       cam1_distortion_coeffs[2], cam1_distortion_coeffs[3]);
 
-  cout << R_imu_cam0 << endl;
-  cout << t_imu_cam0.t() << endl;
+  if (this->cam_type == "DYNAMIC_STEREO") {
+    ROS_INFO("tau_s: %f, %f, %f, %f, %f, %f",
+        this->tau_s(0), this->tau_s(1), this->tau_s(2),
+        this->tau_s(3), this->tau_s(4), this->tau_s(5));
+    ROS_INFO("tau_d: %f, %f, %f, %f, %f, %f",
+        this->tau_d(0), this->tau_d(1), this->tau_d(2),
+        this->tau_d(3), this->tau_d(4), this->tau_d(5));
+    ROS_INFO("w1: %f, %f, %f",
+        this->w1(0), this->w1(1), this->w1(2));
+    ROS_INFO("w2: %f, %f, %f",
+        this->w2(0), this->w2(1), this->w2(2));
+    ROS_INFO("theta1_offset: %f", this->theta1_offset);
+    ROS_INFO("theta2_offset: %f", this->theta2_offset);
+  }
+
+  // cout << R_imu_cam0 << endl;
+  // cout << t_imu_cam0.t() << endl;
 
   ROS_INFO("grid_row: %d",
       processor_config.grid_row);
@@ -175,10 +260,8 @@ bool ImageProcessor::loadParameters() {
 }
 
 bool ImageProcessor::createRosIO() {
-  feature_pub = nh.advertise<CameraMeasurement>(
-      "features", 3);
-  tracking_info_pub = nh.advertise<TrackingInfo>(
-      "tracking_info", 1);
+  feature_pub = nh.advertise<CameraMeasurement>("features", 3);
+  tracking_info_pub = nh.advertise<TrackingInfo>("tracking_info", 1);
   image_transport::ImageTransport it(nh);
   debug_stereo_pub = it.advertise("debug_stereo_image", 1);
 
@@ -186,8 +269,8 @@ bool ImageProcessor::createRosIO() {
   cam1_img_sub.subscribe(nh, "cam1_image", 10);
   stereo_sub.connectInput(cam0_img_sub, cam1_img_sub);
   stereo_sub.registerCallback(&ImageProcessor::stereoCallback, this);
-  imu_sub = nh.subscribe("imu", 50,
-      &ImageProcessor::imuCallback, this);
+  imu_sub = nh.subscribe("imu", 50, &ImageProcessor::imuCallback, this);
+  /* gimbal_sub = nh.subscribe("gimbal", 0, &ImageProcessor::gimbalCallback, this); */
 
   return true;
 }
@@ -292,6 +375,10 @@ void ImageProcessor::imuCallback(
   if (is_first_img) return;
   imu_msg_buffer.push_back(*msg);
   return;
+}
+
+void ImageProcessor::gimbalCallback(const geometry_msgs::Vector3 &msg) {
+	this->joint_angles = Eigen::Vector3d{msg.x, msg.y, msg.z};
 }
 
 void ImageProcessor::createImagePyramids() {

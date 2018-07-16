@@ -90,16 +90,16 @@ TEST(FeatureInitializeTest, sphereDistribution) {
     measurements[i] = Vector4d(u, v, u, v);
   }
 
-  for (int i = 0; i < 6; ++i) {
-    cout << "pose " << i << ":" << endl;
-    cout << "orientation: " << endl;
-    cout << cam_poses[i].linear() << endl;
-    cout << "translation: "  << endl;
-    cout << cam_poses[i].translation().transpose() << endl;
-    cout << "measurement: " << endl;
-    cout << measurements[i].transpose() << endl;
-    cout << endl;
-  }
+  // for (int i = 0; i < 6; ++i) {
+  //   cout << "pose " << i << ":" << endl;
+  //   cout << "orientation: " << endl;
+  //   cout << cam_poses[i].linear() << endl;
+  //   cout << "translation: "  << endl;
+  //   cout << cam_poses[i].translation().transpose() << endl;
+  //   cout << "measurement: " << endl;
+  //   cout << measurements[i].transpose() << endl;
+  //   cout << endl;
+  // }
 
   // Initialize a feature object.
   Feature feature_object;
@@ -111,14 +111,13 @@ TEST(FeatureInitializeTest, sphereDistribution) {
 
   // Check the difference between the computed 3d
   // feature position and the groud truth.
-  cout << "ground truth position: " << feature.transpose() << endl;
-  cout << "estimated position: " << feature_object.position.transpose() << endl;
+  // cout << "ground truth position: " << feature.transpose() << endl;
+  // cout << "estimated position: " << feature_object.position.transpose() << endl;
   Eigen::Vector3d error = feature_object.position - feature;
   EXPECT_NEAR(error.norm(), 0, 0.05);
 }
 
-int main(int argc, char** argv) {
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}
-
+// int main(int argc, char** argv) {
+//   testing::InitGoogleTest(&argc, argv);
+//   return RUN_ALL_TESTS();
+// }

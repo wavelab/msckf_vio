@@ -153,21 +153,16 @@ install(FILES nodelets.xml
 ## Testing ##
 #############
 
-if(CATKIN_ENABLE_TESTING)
-  # Feature initialization test
-  catkin_add_gtest(test_feature_init
-    test/feature_initialization_test.cpp
-  )
-  add_dependencies(test_feature_init
-    ${${PROJECT_NAME}_EXPORTED_TARGETS}
-    ${catkin_EXPORTED_TARGETS}
-  )
-  target_link_libraries(test_feature_init
-    ${catkin_LIBRARIES}
-  )
-
-  # Math utils test
-  catkin_add_gtest(test_math_utils
-    test/math_utils_test.cpp
-  )
-endif()
+ADD_EXECUTABLE(
+  msckf_vio_tests
+  test/feature_initialization_test.cpp
+  # test/image_processor_test.cpp
+  test/math_utils_test.cpp
+  test/test_runner.cpp
+)
+TARGET_LINK_LIBRARIES(msckf_vio_tests
+  ${catkin_LIBRARIES}
+  msckf_vio
+  image_processor
+  gtest
+)

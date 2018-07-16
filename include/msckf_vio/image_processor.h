@@ -13,12 +13,15 @@
 #include <boost/shared_ptr.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/video.hpp>
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
 
 #include <ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Image.h>
+#include <geometry_msgs/Vector3.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
 
@@ -152,6 +155,13 @@ private:
    * @param msg IMU msg.
    */
   void imuCallback(const sensor_msgs::ImuConstPtr& msg);
+
+  /*
+   * @brief gimbalCallback
+   *    Callback function for the gimbal joint message.
+   * @param msg Vector3 msg.
+   */
+  void gimbalCallback(const geometry_msgs::Vector3 &msg);
 
   /*
    * @initializeFirstFrame
@@ -331,6 +341,9 @@ private:
   // IMU message buffer.
   std::vector<sensor_msgs::Imu> imu_msg_buffer;
 
+  // Camera type
+  std::string cam_type;
+
   // Camera calibration parameters
   std::string cam0_distortion_model;
   cv::Vec2i cam0_resolution;
@@ -348,6 +361,15 @@ private:
   // Take a vector from cam1 frame to the IMU frame.
   cv::Matx33d R_cam1_imu;
   cv::Vec3d t_cam1_imu;
+
+  // Gimbal properties
+	Eigen::Vector3d joint_angles = Eigen::Vector3d::Zero();
+	Eigen::VectorXd tau_s;
+	Eigen::VectorXd tau_d;
+	Eigen::Vector3d w1 = Eigen::Vector3d::Zero();
+	Eigen::Vector3d w2 = Eigen::Vector3d::Zero();
+	double theta1_offset = 0.0;
+	double theta2_offset = 0.0;
 
   // Previous and current images
   cv_bridge::CvImageConstPtr cam0_prev_img_ptr;
@@ -373,13 +395,11 @@ private:
   ros::NodeHandle nh;
 
   // Subscribers and publishers.
-  message_filters::Subscriber<
-    sensor_msgs::Image> cam0_img_sub;
-  message_filters::Subscriber<
-    sensor_msgs::Image> cam1_img_sub;
-  message_filters::TimeSynchronizer<
-    sensor_msgs::Image, sensor_msgs::Image> stereo_sub;
+  message_filters::Subscriber< sensor_msgs::Image> cam0_img_sub;
+  message_filters::Subscriber< sensor_msgs::Image> cam1_img_sub;
+  message_filters::TimeSynchronizer< sensor_msgs::Image, sensor_msgs::Image> stereo_sub;
   ros::Subscriber imu_sub;
+  ros::Subscriber gimbal_sub;
   ros::Publisher feature_pub;
   ros::Publisher tracking_info_pub;
   image_transport::Publisher debug_stereo_pub;
